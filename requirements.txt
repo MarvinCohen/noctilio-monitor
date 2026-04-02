@@ -1,0 +1,4 @@
+# Dépendances Python du monitoring Noctilio
+requests==2.31.0          # HTTP client pour scraping et webhook Slack
+beautifulsoup4==4.12.3    # Parsing HTML pour Doctissimo et Mumsnet
+lxml==5.1.0               # Parser HTML rapide (backend pour BeautifulSoup)
