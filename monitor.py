@@ -20,7 +20,7 @@ from utils.slack_notifier import send_slack_digest
 # Configuration du seuil de pertinence (0-100)
 # Seuls les posts avec score >= THRESHOLD sont alertés
 # ──────────────────────────────────────────────
-THRESHOLD = 55
+THRESHOLD = 30
 
 # Fichier de cache pour ne pas re-alerter les mêmes posts
 CACHE_FILE = "seen_posts.json"
