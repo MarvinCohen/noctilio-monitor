@@ -1,83 +1,82 @@
 """
-scrapers/reddit_scraper.py — Scraper Reddit
-Utilise l'API JSON publique de Reddit (sans clé) pour surveiller
-les subreddits pertinents parentalité / enfants.
+scrapers/reddit_scraper.py — Scraper Reddit via RSS
+Utilise les flux RSS publics de Reddit (pas de clé API requise)
+qui ne sont pas bloqués par les serveurs GitHub Actions.
 """
 
 import time
 import requests
+import xml.etree.ElementTree as ET
 
-# ──────────────────────────────────────────────
-# Subreddits à surveiller
-# On mélange FR et EN pour maximiser la couverture
-# ──────────────────────────────────────────────
 SUBREDDITS = [
-    "france",           # Discussions générales FR — parentalité y apparaît souvent
-    "french",           # Communauté francophone internationale
-    "Parenting",        # Subreddit EN parenting très actif
-    "Parents",          # Autre communauté parenting EN
-    "raisingkids",      # Spécialisé éducation enfants
-    "beyondthebump",    # Parents de jeunes enfants
-    "Mommit",           # Communauté mères
-    "daddit",           # Communauté pères
-    "KidsAreFuckingStupid",  # Viral, beaucoup de parents actifs
-    "AskParents",       # Questions parentalité
+    "france",
+    "french",
+    "Parenting",
+    "Parents",
+    "raisingkids",
+    "beyondthebump",
+    "Mommit",
+    "daddit",
+    "AskParents",
 ]
 
-# L'API JSON publique Reddit — pas besoin de compte
-REDDIT_JSON_URL = "https://www.reddit.com/r/{subreddit}/new.json?limit=25"
+REDDIT_RSS_URL = "https://www.reddit.com/r/{subreddit}/new/.rss?limit=25"
 
 HEADERS = {
-    # Reddit bloque les User-Agents génériques — on se présente comme un bot légitime
-    "User-Agent": "NoctilioMonitor/1.0 (monitoring app for parenting discussions; contact: marvincohen95@gmail.com)"
+    "User-Agent": "NoctilioMonitor/1.0 RSS Reader (contact: marvincohen95@gmail.com)"
 }
+
+NS = {"atom": "http://www.w3.org/2005/Atom"}
 
 
 def scrape_reddit() -> list[dict]:
-    """
-    Récupère les 25 derniers posts de chaque subreddit surveillé.
-    Retourne une liste de dicts normalisés {title, url, body, source, created_at}.
-    """
     posts = []
 
     for subreddit in SUBREDDITS:
         try:
-            url = REDDIT_JSON_URL.format(subreddit=subreddit)
-            response = requests.get(url, headers=HEADERS, timeout=10)
+            url = REDDIT_RSS_URL.format(subreddit=subreddit)
+            response = requests.get(url, headers=HEADERS, timeout=15)
 
-            # Reddit peut retourner 429 si on va trop vite
             if response.status_code == 429:
-                print(f"    [Reddit] Rate limit sur r/{subreddit}, pause 5s...")
-                time.sleep(5)
-                response = requests.get(url, headers=HEADERS, timeout=10)
+                print(f"    [Reddit] Rate limit sur r/{subreddit}, pause 10s...")
+                time.sleep(10)
+                response = requests.get(url, headers=HEADERS, timeout=15)
 
             response.raise_for_status()
-            data = response.json()
 
-            for item in data.get("data", {}).get("children", []):
-                post_data = item.get("data", {})
+            root = ET.fromstring(response.content)
 
-                # Ignorer les posts supprimés ou sans contenu utile
-                if post_data.get("removed_by_category"):
+            for entry in root.findall("atom:entry", NS):
+                title_el = entry.find("atom:title", NS)
+                link_el = entry.find("atom:link", NS)
+                content_el = entry.find("atom:content", NS)
+                author_el = entry.find("atom:author/atom:name", NS)
+
+                title = title_el.text if title_el is not None else ""
+                url_post = link_el.get("href", "") if link_el is not None else ""
+                body = content_el.text if content_el is not None else ""
+
+                if not title or len(title) < 5:
                     continue
 
                 posts.append({
-                    "title": post_data.get("title", ""),
-                    # selftext = corps du post (vide pour les liens)
-                    "body": post_data.get("selftext", "")[:500],
-                    "url": f"https://reddit.com{post_data.get('permalink', '')}",
+                    "title": title,
+                    "body": body[:300] if body else "",
+                    "url": url_post,
                     "source": f"Reddit r/{subreddit}",
-                    "author": post_data.get("author", ""),
-                    "created_at": post_data.get("created_utc", 0),
-                    "upvotes": post_data.get("score", 0),
-                    "num_comments": post_data.get("num_comments", 0),
+                    "author": author_el.text if author_el is not None else "",
+                    "created_at": 0,
+                    "upvotes": 0,
+                    "num_comments": 0,
                 })
 
-            # Pause polie entre chaque subreddit pour respecter Reddit
-            time.sleep(1.5)
+            time.sleep(2)
 
         except requests.RequestException as e:
             print(f"    [Reddit] Erreur sur r/{subreddit}: {e}")
+            continue
+        except ET.ParseError as e:
+            print(f"    [Reddit] Erreur XML sur r/{subreddit}: {e}")
             continue
 
     print(f"    [Reddit] {len(posts)} posts récupérés.")
