@@ -82,7 +82,7 @@ def run():
         post["score"] = score_post(post)
 
         # Garder seulement les posts au-dessus du seuil
-        if post["score"] >= THRESHOLD:
+        if post["score"] >= THRESHOLD and is_french(post):
             new_relevant.append(post)
 
     # ── Tri par score décroissant ──
@@ -103,4 +103,15 @@ def run():
 
 
 if __name__ == "__main__":
+    def is_french(post: dict) -> bool:
+    """Garde uniquement les posts en français."""
+    french_signals = [
+        "enfant", "enfants", "histoire", "histoires", "parent", "parents",
+        "famille", "maman", "papa", "fils", "fille", "lecture", "soir",
+        "mon ", "ma ", "mes ", "je ", "nous ", "vous ", "pour ", "avec ",
+        "dans ", "sur ", "une ", "des ", "les ", "est ", "sont ",
+    ]
+    text = f"{post.get('title', '')} {post.get('body', '')}".lower()
+    matches = sum(1 for s in french_signals if s in text)
+    return matches >= 2
     run()
