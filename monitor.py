@@ -16,13 +16,7 @@ from utils.scorer import score_post
 from utils.slack_notifier import send_slack_digest
 
 
-# ──────────────────────────────────────────────
-# Configuration du seuil de pertinence (0-100)
-# Seuls les posts avec score >= THRESHOLD sont alertés
-# ──────────────────────────────────────────────
 THRESHOLD = 30
-
-# Fichier de cache pour ne pas re-alerter les mêmes posts
 CACHE_FILE = "seen_posts.json"
 
 
@@ -36,7 +30,6 @@ def load_cache() -> set:
 
 def save_cache(seen_ids: set):
     """Sauvegarde le cache des posts déjà vus."""
-    # On garde seulement les 2000 derniers IDs pour éviter un fichier trop grand
     ids_list = list(seen_ids)[-2000:]
     with open(CACHE_FILE, "w") as f:
         json.dump(ids_list, f)
@@ -47,6 +40,19 @@ def make_post_id(post: dict) -> str:
     return hashlib.md5(post["url"].encode()).hexdigest()
 
 
+def is_french(post: dict) -> bool:
+    """Garde uniquement les posts en français."""
+    french_signals = [
+        "enfant", "enfants", "histoire", "histoires", "parent", "parents",
+        "famille", "maman", "papa", "fils", "fille", "lecture", "soir",
+        "mon ", "ma ", "mes ", "je ", "nous ", "vous ", "pour ", "avec ",
+        "dans ", "sur ", "une ", "des ", "les ", "est ", "sont ",
+    ]
+    text = f"{post.get('title', '')} {post.get('body', '')}".lower()
+    matches = sum(1 for s in french_signals if s in text)
+    return matches >= 2
+
+
 def run():
     """Point d'entrée principal : scrape, score, filtre, notifie."""
     print(f"[{datetime.now(timezone.utc).isoformat()}] Démarrage du monitoring Noctilio...")
@@ -54,7 +60,6 @@ def run():
     seen_ids = load_cache()
     all_posts = []
 
-    # ── Scraping de chaque source ──
     print("→ Scraping Reddit...")
     all_posts += scrape_reddit()
 
@@ -66,52 +71,33 @@ def run():
 
     print(f"  {len(all_posts)} posts récupérés au total.")
 
-    # ── Déduplication + scoring ──
     new_relevant = []
 
     for post in all_posts:
         post_id = make_post_id(post)
 
-        # Ignorer les posts déjà vus
         if post_id in seen_ids:
             continue
 
         seen_ids.add(post_id)
-
-        # Calculer le score de pertinence (0-100)
         post["score"] = score_post(post)
 
-        # Garder seulement les posts au-dessus du seuil
         if post["score"] >= THRESHOLD and is_french(post):
             new_relevant.append(post)
 
-    # ── Tri par score décroissant ──
     new_relevant.sort(key=lambda p: p["score"], reverse=True)
 
     print(f"  {len(new_relevant)} posts pertinents trouvés (seuil: {THRESHOLD}).")
 
-    # ── Envoi Slack ──
     if new_relevant:
         send_slack_digest(new_relevant)
         print(f"  ✓ Alerte Slack envoyée pour {len(new_relevant)} posts.")
     else:
         print("  Aucun nouveau post pertinent. Pas d'alerte envoyée.")
 
-    # ── Sauvegarde du cache ──
     save_cache(seen_ids)
     print("  ✓ Cache mis à jour.")
 
 
 if __name__ == "__main__":
-    def is_french(post: dict) -> bool:
-    """Garde uniquement les posts en français."""
-    french_signals = [
-        "enfant", "enfants", "histoire", "histoires", "parent", "parents",
-        "famille", "maman", "papa", "fils", "fille", "lecture", "soir",
-        "mon ", "ma ", "mes ", "je ", "nous ", "vous ", "pour ", "avec ",
-        "dans ", "sur ", "une ", "des ", "les ", "est ", "sont ",
-    ]
-    text = f"{post.get('title', '')} {post.get('body', '')}".lower()
-    matches = sum(1 for s in french_signals if s in text)
-    return matches >= 2
     run()
