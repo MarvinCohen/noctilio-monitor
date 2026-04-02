@@ -1,94 +1,83 @@
 """
-scrapers/doctissimo_scraper.py — Scraper forums FR parentalité
-Surveille Magicmaman et Parents.fr (Doctissimo ayant restructuré ses URLs).
+scrapers/doctissimo_scraper.py — Scraper Google News RSS (FR)
+Surveille les actualités et discussions parentalité francophones
+via les flux RSS Google News — jamais bloqués, toujours à jour.
 """
 
 import time
 import requests
-from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-FORUMS = [
+GOOGLE_NEWS_FEEDS = [
     {
-        "name": "Magicmaman — Forum enfants",
-        "url": "https://forum.magicmaman.com/enfants/",
+        "name": "Google News — histoires enfants",
+        "url": "https://news.google.com/rss/search?q=histoire+enfant+personnalis%C3%A9e&hl=fr&gl=FR&ceid=FR:fr",
     },
     {
-        "name": "Magicmaman — Forum éducation",
-        "url": "https://forum.magicmaman.com/education/",
+        "name": "Google News — application enfant lecture",
+        "url": "https://news.google.com/rss/search?q=application+enfant+lecture&hl=fr&gl=FR&ceid=FR:fr",
     },
     {
-        "name": "Magicmaman — Forum bébé",
-        "url": "https://forum.magicmaman.com/bebe/",
+        "name": "Google News — alternatives écrans enfants",
+        "url": "https://news.google.com/rss/search?q=alternatives+%C3%A9crans+enfants&hl=fr&gl=FR&ceid=FR:fr",
     },
     {
-        "name": "Forum Parents.fr",
-        "url": "https://www.parents.fr/forum/",
+        "name": "Google News — parentalité numérique",
+        "url": "https://news.google.com/rss/search?q=parentalit%C3%A9+num%C3%A9rique+enfant&hl=fr&gl=FR&ceid=FR:fr",
     },
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "fr-FR,fr;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "NoctilioMonitor/1.0 RSS Reader"
 }
 
 
 def scrape_doctissimo() -> list[dict]:
     """
-    Scrape les forums FR parentalité (Magicmaman, Parents.fr).
+    Récupère les derniers articles/discussions via Google News RSS.
     Retourne une liste de dicts normalisés.
     """
     posts = []
 
-    for forum in FORUMS:
+    for feed in GOOGLE_NEWS_FEEDS:
         try:
-            response = requests.get(forum["url"], headers=HEADERS, timeout=15)
+            response = requests.get(feed["url"], headers=HEADERS, timeout=15)
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.text, "html.parser")
+            root = ET.fromstring(response.content)
 
-            # Cherche tous les liens qui ressemblent à des topics de forum
-            all_links = soup.find_all("a", href=True)
-            seen_urls = set()
+            for item in root.findall(".//item"):
+                title_el = item.find("title")
+                link_el = item.find("link")
+                desc_el = item.find("description")
 
-            for link in all_links:
-                title = link.get_text(strip=True)
-                href = link.get("href", "")
+                title = title_el.text if title_el is not None else ""
+                url = link_el.text if link_el is not None else ""
+                body = desc_el.text if desc_el is not None else ""
 
-                if not title or len(title) < 15:
+                if not title or len(title) < 10:
                     continue
-
-                # Filtrer les liens de navigation (menus, catégories)
-                if any(skip in title.lower() for skip in ["connexion", "inscription", "accueil", "forum", "retour", "page", "suivant", "précédent"]):
-                    continue
-
-                if not href.startswith("http"):
-                    href = forum["url"].rstrip("/") + "/" + href.lstrip("/")
-
-                if href in seen_urls:
-                    continue
-                seen_urls.add(href)
 
                 posts.append({
                     "title": title,
-                    "body": "",
-                    "url": href,
-                    "source": forum["name"],
+                    "body": body[:300] if body else "",
+                    "url": url,
+                    "source": feed["name"],
                     "author": "",
                     "created_at": datetime.now(timezone.utc).timestamp(),
                     "upvotes": 0,
                     "num_comments": 0,
                 })
 
-            time.sleep(2)
+            time.sleep(1)
 
         except requests.RequestException as e:
-            print(f"    [Forums FR] Erreur sur {forum['name']}: {e}")
+            print(f"    [Google News] Erreur sur {feed['name']}: {e}")
             continue
-        except Exception as e:
-            print(f"    [Forums FR] Erreur parsing {forum['name']}: {e}")
+        except ET.ParseError as e:
+            print(f"    [Google News] Erreur XML sur {feed['name']}: {e}")
             continue
 
-    print(f"    [Forums FR] {len(posts)} sujets récupérés.")
+    print(f"    [Google News FR] {len(posts)} articles récupérés.")
     return posts
